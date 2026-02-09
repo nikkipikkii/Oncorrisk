@@ -260,3 +260,175 @@ def agreement_label(score):
         return "Moderate"
     return "Low"
 
+# ============================================================
+# DATA + MODEL LOADING
+# ============================================================
+
+@st.cache_resource
+def load_artifacts():
+    df_tcga = pd.read_csv(TCGA_PATH, index_col=0)
+    df_mb   = pd.read_csv(MB_PATH, index_col=0)
+
+    clinical = ["AGE", "NODE_POS"]
+    
+    gene_features = [
+        c for c in df_tcga.columns
+        if c not in ["time", "event", "AGE", "NODE_POS"]
+    ]
+    features = clinical + gene_features
+
+    train_ids = pd.read_csv(SPLITS_DIR / "train_ids.csv").iloc[:, 0]
+    test_ids  = pd.read_csv(SPLITS_DIR / "test_ids.csv").iloc[:, 0]
+
+    train_ids = train_ids[train_ids.isin(df_tcga.index)]
+    test_ids  = test_ids[test_ids.isin(df_tcga.index)]
+
+    df_train = df_tcga.loc[train_ids]
+    df_test  = df_tcga.loc[test_ids]
+
+    scaler = StandardScaler().fit(df_train[features])
+
+    X_train = scaler.transform(df_train[features])
+    X_test  = scaler.transform(df_test[features])
+    X_mb    = scaler.transform(df_mb[features])
+
+    df_train_s = pd.concat(
+        [df_train[["time","event"]],
+         pd.DataFrame(X_train, index=df_train.index, columns=features)], axis=1)
+
+    df_test_s = pd.concat(
+        [df_test[["time","event"]],
+         pd.DataFrame(X_test, index=df_test.index, columns=features)], axis=1)
+
+    df_mb_s = pd.concat(
+        [df_mb[["time","event"]],
+         pd.DataFrame(X_mb, index=df_mb.index, columns=features)], axis=1)
+
+    # Cox
+    cph = CoxPHFitter()
+    cph.fit(df_train_s, "time", "event")
+
+    risk_train_cox = cph.predict_partial_hazard(df_train_s).values.flatten()
+    risk_test_cox  = cph.predict_partial_hazard(df_test_s).values.flatten()
+    risk_mb_cox    = cph.predict_partial_hazard(df_mb_s).values.flatten()
+    cindex_train_cox = concordance_index(
+        df_train_s["time"],
+        -risk_train_cox,
+        df_train_s["event"]
+    )
+
+
+    cindex_test_cox  = concordance_index(df_test_s["time"],  -risk_test_cox,  df_test_s["event"])
+    cindex_mb_cox    = concordance_index(df_mb_s["time"],    -risk_mb_cox,    df_mb_s["event"])
+
+    # RSF
+    rsf = RandomSurvivalForest(
+        n_estimators=500,
+        min_samples_leaf=15,
+        max_features="sqrt",
+        random_state=123,
+        n_jobs=-1
+    )
+    rsf.fit(X_train, Surv.from_arrays(df_train["event"].astype(bool),
+                                      df_train["time"].astype(float)))
+
+    ch_train = rsf.predict_cumulative_hazard_function(X_train)
+    ch_test  = rsf.predict_cumulative_hazard_function(X_test)
+    ch_mb    = rsf.predict_cumulative_hazard_function(X_mb)
+
+    risk_train_rsf = np.array([fn.y[-1] for fn in ch_train])
+    risk_test_rsf  = np.array([fn.y[-1] for fn in ch_test])
+    risk_mb_rsf    = np.array([fn.y[-1] for fn in ch_mb])
+
+
+    cindex_train_rsf = concordance_index_censored(
+        df_train["event"].astype(bool),
+        df_train["time"].astype(float),
+        risk_train_rsf)[0]
+
+    cindex_test_rsf = concordance_index_censored(
+        df_test["event"].astype(bool),
+        df_test["time"].astype(float),
+        risk_test_rsf)[0]
+
+    cindex_mb_rsf = concordance_index_censored(
+        df_mb["event"].astype(bool),
+        df_mb["time"].astype(float),
+        risk_mb_rsf)[0]
+
+    # Feature importance
+    df_imp_cox = cph.params_.to_frame("coef")
+    df_imp_cox["feature"] = df_imp_cox.index
+    df_imp_cox["abs_coef"] = df_imp_cox["coef"].abs()
+    df_imp_cox["type"] = ["clinical" if f in clinical else "gene" for f in df_imp_cox.index]
+    df_imp_cox = df_imp_cox.sort_values("abs_coef", ascending=False)
+
+
+    try:
+        df_imp_rsf = pd.DataFrame({
+            "feature": features,
+            "importance": rsf.feature_importances_,
+        })
+        df_imp_rsf["abs_importance"] = df_imp_rsf["importance"].abs()
+        df_imp_rsf["type"] = ["clinical" if f in clinical else "gene" for f in features]
+        df_imp_rsf = df_imp_rsf.sort_values("abs_importance", ascending=False)
+    except Exception:
+        df_imp_rsf = pd.DataFrame()
+
+    # KM prep
+    df_tcga_test_km = df_test_s.copy()
+    df_tcga_test_km["risk_cox"] = risk_test_cox
+    cut_tcga = np.median(risk_test_cox)
+    df_tcga_test_km["group_cox"] = np.where(df_tcga_test_km["risk_cox"] > cut_tcga, "High", "Low")
+
+    df_mb_km = df_mb_s.copy()
+    df_mb_km["risk_cox"] = risk_mb_cox
+    cut_mb = np.median(risk_mb_cox)
+    df_mb_km["group_cox"] = np.where(df_mb_km["risk_cox"] > cut_mb, "High", "Low")
+
+    return dict(
+        df_tcga=df_tcga,
+        df_mb=df_mb,
+        df_test=df_test_s,
+        df_mb_s=df_mb_s,
+        features=features,
+        gene_features=gene_features,
+        scaler=scaler,
+        cph=cph,
+        rsf=rsf,
+        risk_test_cox=risk_test_cox,
+        risk_test_rsf=risk_test_rsf,
+        cindex_train_cox=cindex_train_cox,
+        cindex_train_rsf=cindex_train_rsf,
+        df_tcga_test_km=df_tcga_test_km,
+        df_mb_km=df_mb_km,
+        df_imp_cox=df_imp_cox,
+        df_imp_rsf=df_imp_rsf,
+        cindex_test_cox=cindex_test_cox,
+        cindex_test_rsf=cindex_test_rsf,
+        cindex_mb_cox=cindex_mb_cox,
+        cindex_mb_rsf=cindex_mb_rsf
+    )
+@st.cache_resource(show_spinner="Loading survival models...")
+def get_artifacts():
+    return load_artifacts()
+
+
+# ============================================================
+# GENE NARRATIVES
+# ============================================================
+
+GENE_NARRATIVES = {
+    "CD24": "Immune evasion via Siglec-10; higher expression aligns with increased hazard.",
+    "SLC16A2": "Thyroid hormone transport; metabolic rewiring under stress.",
+    "SERPINA1": "Protease regulation and invasion-permissive microenvironment.",
+    "TFPI2": "Extracellular matrix control and metastatic potential.",
+    "SEMA3B": "Loss of repulsive anti-invasive cues.",
+    "TNFRSF14": "Tumor–immune interface regulation.",
+    "APOOL": "Mitochondrial lipid handling.",
+    "MRPL13": "Oxidative phosphorylation dependency.",
+    "QPRT": "NAD+ biosynthesis under stress.",
+    "JCHAIN": "Humoral immune architecture.",
+    "NANOS1": "Stem-like, therapy-tolerant state.",
+    "EDA2R": "Stress-adaptive signaling.",
+}
