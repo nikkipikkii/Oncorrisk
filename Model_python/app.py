@@ -1052,3 +1052,97 @@ elif page == "Cohort Analytics":
         "and alignment between linear and nonlinear risk modeling."
     )
 
+# ============================================================
+# PAGE: FEATURE INTELLIGENCE
+# ============================================================
+
+elif page == "Feature Intelligence":
+    st.write("🧪 ENTERED:", page)
+
+    st.title("Feature-Level Intelligence (Cox + RSF)")
+    art = get_artifacts()
+
+    df_imp_cox = art["df_imp_cox"]
+    df_imp_rsf = art["df_imp_rsf"]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("CoxPH – Top Features")
+        top_cox = df_imp_cox.head(30)
+
+        fig, ax = plt.subplots(figsize=(5, 6))  # taller for 30 genes
+        y_pos = np.arange(len(top_cox))
+        ax.barh(y_pos, top_cox["coef"].values)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(top_cox["feature"].values)
+        ax.invert_yaxis()
+        ax.set_xlabel("Coefficient (log-hazard)")
+        ax.set_title("Top 30 Features by |Cox Coefficient|")
+        fig.tight_layout()
+        st.pyplot(fig)
+
+    with col2:
+        st.subheader("RSF – Top Features")
+        if not df_imp_rsf.empty:
+            top_rsf = df_imp_rsf.head(30)
+            fig2, ax2 = plt.subplots(figsize=(5, 6))  # taller
+            y_pos2 = np.arange(len(top_rsf))
+            ax2.barh(y_pos2, top_rsf["importance"].values)
+            ax2.set_yticks(y_pos2)
+            ax2.set_yticklabels(top_rsf["feature"].values)
+            ax2.invert_yaxis()
+            ax2.set_xlabel("Importance")
+            ax2.set_title("Top 30 Features by RSF Importance")
+            fig2.tight_layout()
+            st.pyplot(fig2)
+        else:
+            st.info("RSF importance not available in this build.")
+
+    st.caption("Cox gives directional effect; RSF gives nonlinear contribution. Together they form a dual lens.")
+
+# ============================================================
+# PAGE: GENE INTELLIGENCE
+# ============================================================
+
+elif page == "Gene Intelligence":
+    st.write("🧪 ENTERED:", page)
+
+    st.title("Gene-Level Biological Intelligence")
+    art = get_artifacts()
+
+    df_imp_cox = art["df_imp_cox"]
+
+    df_genes_cox = df_imp_cox[df_imp_cox["type"] == "gene"].copy()
+    df_genes_cox = df_genes_cox.sort_values("abs_coef", ascending=False)
+
+    gene = st.selectbox("Select gene", df_genes_cox["feature"].tolist())
+
+    colA, colB = st.columns(2)
+
+    with colA:
+        st.markdown("#### Top Genes by |Cox Coefficient|")
+        st.dataframe(
+            df_genes_cox[["feature", "coef", "abs_coef"]].head(25),
+            use_container_width=True,
+            height=400
+        )
+
+    with colB:
+        st.markdown("#### Gene Narrative & Metrics")
+
+        if gene in GENE_NARRATIVES:
+            st.markdown("**Biological Narrative**")
+            st.write(GENE_NARRATIVES[gene])
+        else:
+            st.write(
+                "This gene contributes to the hazard model through its coefficient magnitude and sign. "
+                "Higher absolute coefficient implies stronger influence on risk."
+            )
+
+        g_row = df_genes_cox[df_genes_cox["feature"] == gene].iloc[0]
+        st.markdown("**Model Contribution (CoxPH)**")
+        st.write(f"- Coefficient (log-hazard): {g_row['coef']:.4f}")
+        st.write(f"- |Coefficient|: {g_row['abs_coef']:.4f}")
+        st.write(f"- Rank by |coef|: {df_genes_cox.index.get_loc(g_row.name) + 1}")
+
