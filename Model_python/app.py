@@ -766,3 +766,289 @@ elif page == "Dashboard":
             st.info("RSF importance not available in this build.")
 
 # 
+# ============================================================
+# PAGE: PATIENT RISK PROFILE INFERENCE
+# ============================================================
+
+elif page == "Patient Risk Profile Inference":
+    st.write("🧪 ENTERED:", page)
+
+    st.title("Patient Risk Profile Inference (Cox + RSF)")
+    art = get_artifacts()
+
+    df_tcga = art["df_tcga"]
+    df_test_scaled = art["df_test"]
+    df_mb_scaled = art["df_mb_s"]
+
+    features = art["features"]
+    gene_features = art["gene_features"]
+
+    scaler = art["scaler"]
+    cph = art["cph"]
+    rsf = art["rsf"]
+
+    mode = st.radio(
+        "Input mode",
+        ["Manual profile", "Select existing TCGA test patient"],
+        horizontal=True
+    )
+
+    if mode == "Select existing TCGA test patient":
+        # pick patient ID from test set
+        pid = st.selectbox("Patient ID (TCGA test)", df_test_scaled.index.tolist())
+
+        # ---- UI defaults from RAW, not scaled ----
+        AGE_default = float(df_tcga.loc[pid, "AGE"])
+        NODE_default = 1 if df_tcga.loc[pid, "NODE_POS"] == 1 else 0
+
+
+        # ---- SAFETY: ensure dropdown index is valid ----
+        if NODE_default not in [0, 1]:
+            NODE_default = 0
+
+
+
+
+    else:
+        pid = None
+        AGE_default = 55.0
+        NODE_default = 0
+
+
+    # -------------------------------
+    # CLINICAL INPUTS
+    # -------------------------------
+    st.markdown("#### Clinical Inputs")
+    c1, c2 = st.columns(2)
+    AGE = c1.number_input("Age (years)", 0.0, 100.0, float(AGE_default))
+    NODE_STR = c2.selectbox(
+        "Lymph Node Status",
+        ["Negative", "Positive"],
+        index=NODE_default
+    )
+    NODE_POS = 1 if NODE_STR == "Positive" else 0
+
+    # -------------------------------
+    # GENE INPUTS
+    # -------------------------------
+    st.markdown("#### Molecular Profile (optional; default = 0)")
+    gene_vals = {}
+
+    with st.expander("Gene expression inputs (z-scored / approximate)"):
+        for g in gene_features:
+            gene_vals[g] = st.number_input(g, value=0.0, key=f"gene_{g}")
+
+    # -------------------------------
+    # RUN INFERENCE
+    # -------------------------------
+    if st.button("Run Risk Inference"):
+
+        # Build raw feature row
+        row_dict = {"AGE": AGE, "NODE_POS": NODE_POS}
+        row_dict.update(gene_vals)
+        row_raw = pd.DataFrame([row_dict])[features]
+
+        # Scale
+        X_row = scaler.transform(row_raw.values)
+        df_row_scaled = pd.DataFrame(X_row, columns=features)
+
+        # Cox hazard + survival curve
+        hazard_cox = float(cph.predict_partial_hazard(df_row_scaled).values[0])
+
+        surv_func_cox = cph.predict_survival_function(df_row_scaled)
+        times_cox = surv_func_cox.index.values.astype(float)
+        surv_cox = surv_func_cox.values[:, 0].astype(float)
+
+        # RSF risk + survival curve
+        surv_funcs_rsf = rsf.predict_survival_function(X_row)
+        sf_rsf = surv_funcs_rsf[0]
+        times_rsf = sf_rsf.x.astype(float)
+        surv_rsf = sf_rsf.y.astype(float)
+
+        # common grid
+        t_min = 0.0
+        t_max = min(times_cox.max(), times_rsf.max())
+        grid = np.linspace(t_min, t_max, 200)
+
+        # interpolate
+        surv_cox_grid = np.interp(grid, times_cox, surv_cox)
+        surv_rsf_grid = np.interp(grid, times_rsf, surv_rsf)
+
+        # Survival-time metrics
+        median_cox = median_survival_time(grid, surv_cox_grid)
+        median_rsf = median_survival_time(grid, surv_rsf_grid)
+        rmst_cox = rmst(grid, surv_cox_grid)
+        rmst_rsf = rmst(grid, surv_rsf_grid)
+
+        consensus_median = np.nanmean([median_cox, median_rsf])
+        agree = agreement_score(median_cox, median_rsf)
+        agree_label = agreement_label(agree)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Cox Hazard (relative)", f"{hazard_cox:.2f}")
+        col2.metric("RSF Risk (cum. hazard)", f"{sf_rsf.y[-1]:.2f}")
+        col3.metric(
+            "Model Agreement",
+            f"{agree:.2f}" if not np.isnan(agree) else "N/A",
+            help=f"Agreement: {agree_label}"
+        )
+
+        # Survival Time Estimates
+        st.markdown("#### Survival Time Estimates")
+        c4, c5, c6 = st.columns(3)
+
+        if np.isnan(median_cox):
+            c4.metric("Cox Median Survival", "Not reached")
+        else:
+            c4.metric("Cox Median Survival (days)", f"{median_cox:.1f}")
+
+        if np.isnan(median_rsf):
+            c5.metric("RSF Median Survival", "Not reached")
+        else:
+            c5.metric("RSF Median Survival (days)", f"{median_rsf:.1f}")
+
+        if np.isnan(consensus_median):
+            c6.metric("Consensus Median", "Not reached")
+        else:
+            c6.metric("Consensus Median (days)", f"{consensus_median:.1f}")
+
+        st.caption("If survival never falls below 0.5, median survival is reported as 'Not reached'.")
+
+        # RMST
+        st.markdown("#### Restricted Mean Survival Time (RMST)")
+        c7, c8 = st.columns(2)
+        c7.metric("Cox RMST (days)", f"{rmst_cox:.1f}")
+        c8.metric("RSF RMST (days)", f"{rmst_rsf:.1f}")
+
+        # Plot curves
+        st.markdown("#### Survival Curves (Cox vs RSF)")
+        fig, ax = plt.subplots(figsize=(5, 4))
+
+        ax.plot(grid, surv_cox_grid, label="CoxPH", linestyle="-")
+        ax.plot(grid, surv_rsf_grid, label="RSF", linestyle="--")
+
+        if not np.isnan(median_cox):
+            ax.axvline(median_cox, linestyle=":", alpha=0.7)
+
+        if not np.isnan(median_rsf):
+            ax.axvline(median_rsf, linestyle=":", alpha=0.7)
+
+        ax.set_xlabel("Time (days)")
+        ax.set_ylabel("Survival probability")
+        ax.set_ylim(0, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+# ============================================================
+# PAGE: COHORT ANALYTICS (OPTION B)
+# ============================================================
+
+elif page == "Cohort Analytics":
+    st.write("🧪 ENTERED:", page)
+
+    st.title("Cohort-Level Survival Analytics")
+    art = get_artifacts()
+
+    df_tcga_test_km = art["df_tcga_test_km"]
+    df_mb_km = art["df_mb_km"]
+
+    risk_test_cox = art["risk_test_cox"]
+    risk_test_rsf = art["risk_test_rsf"]
+
+    km = KaplanMeierFitter()
+   
+    # -------------------------
+    # 1. KM Curves – TCGA
+    # -------------------------
+    st.markdown("### 1. KM Curves – TCGA Test (Cox-based stratification)")
+    df_km = df_tcga_test_km.copy()
+
+    fig1, ax1 = plt.subplots(figsize=(5, 4))
+    for g in ["Low", "High"]:
+        sub = df_km[df_km["group_cox"] == g]
+        km.fit(sub["time"], sub["event"], label=g)
+        km.plot_survival_function(ax=ax1)
+
+    ax1.set_title("TCGA Test – KM by Cox Median Hazard Split")
+    ax1.set_xlabel("Time")
+    ax1.set_ylabel("Survival probability")
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+
+    fig1.tight_layout()
+    st.pyplot(fig1)
+    plt.close(fig1)
+
+    # -------------------------
+    # 2. KM Curves – METABRIC
+    # -------------------------
+    st.markdown("### 2. KM Curves – METABRIC External (Cox-based stratification)")
+    df_km_mb = df_mb_km.copy()
+
+    fig2, ax2 = plt.subplots(figsize=(5, 4))
+    for g in ["Low", "High"]:
+        sub = df_km_mb[df_km_mb["group_cox"] == g]
+        km.fit(sub["time"], sub["event"], label=g)
+        km.plot_survival_function(ax=ax2)
+
+    ax2.set_title("METABRIC – KM by Cox Median Hazard Split")
+    ax2.set_xlabel("Time")
+    ax2.set_ylabel("Survival probability")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+
+    fig2.tight_layout()
+    st.pyplot(fig2)
+    plt.close(fig2)
+
+    # -------------------------
+    # 3. Risk Distributions
+    # -------------------------
+    st.markdown("### 3. Risk Distributions – TCGA Test (Cox vs RSF)")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        fig3, ax3 = plt.subplots(figsize=(5, 4))
+        ax3.hist(risk_test_cox, bins=30, alpha=0.8)
+        ax3.set_title("CoxPH Hazard – TCGA Test")
+        ax3.set_xlabel("Hazard score")
+        ax3.set_ylabel("Count")
+        ax3.grid(True, alpha=0.3)
+        fig3.tight_layout()
+        st.pyplot(fig3)
+        plt.close(fig3)
+
+    with c2:
+        fig4, ax4 = plt.subplots(figsize=(5, 4))
+        ax4.hist(risk_test_rsf, bins=30, alpha=0.8)
+        ax4.set_title("RSF Risk – TCGA Test")
+        ax4.set_xlabel("Risk (cum. hazard)")
+        ax4.set_ylabel("Count")
+        ax4.grid(True, alpha=0.3)
+        fig4.tight_layout()
+        st.pyplot(fig4)
+        plt.close(fig4)
+
+    # -------------------------
+    # 4. Scatter
+    # -------------------------
+    st.markdown("### 4. Cox vs RSF Agreement – TCGA Test")
+    fig5, ax5 = plt.subplots(figsize=(5, 4))
+    ax5.scatter(risk_test_cox, risk_test_rsf, alpha=0.4)
+    ax5.set_xlabel("CoxPH Hazard")
+    ax5.set_ylabel("RSF Risk")
+    ax5.set_title("Twin-Model Risk Landscape – TCGA Test")
+    ax5.grid(True, alpha=0.3)
+    fig5.tight_layout()
+    st.pyplot(fig5)
+    plt.close(fig5)
+
+    st.caption(
+        "KM curves and risk distributions reveal cohort-level survival structure "
+        "and alignment between linear and nonlinear risk modeling."
+    )
+
