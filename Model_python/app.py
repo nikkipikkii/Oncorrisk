@@ -432,3 +432,252 @@ GENE_NARRATIVES = {
     "NANOS1": "Stem-like, therapy-tolerant state.",
     "EDA2R": "Stress-adaptive signaling.",
 }
+# ============================================================
+# PAGE: OVERVIEW
+# ============================================================
+if page == "Overview":
+    st.write("🧪 ENTERED:", page)
+
+    dna_bg = load_bg_image(BASE_DIR / "dna_hero.png")
+
+
+    st.markdown(
+        f"""
+<div style="
+position: relative;
+height: 48vh;
+max-height: 460px;
+width: 100%;
+border-radius: 20px;
+overflow: hidden;
+margin-bottom: 3rem;
+background:
+    linear-gradient(
+        90deg,
+        rgba(10,12,20,0.65) 20%,
+        rgba(10,12,20,0.30) 65%
+    ),
+    url('data:image/png;base64,{dna_bg}') left center / cover no-repeat;
+display: flex;
+align-items: center;
+">
+<div style="
+padding: 4rem;
+max-width: 55%;
+background: rgba(15,18,24,0.35);
+backdrop-filter: blur(6px);
+border-radius: 14px;
+">
+<h1 style="margin-bottom:0.5rem;text-shadow:0 2px 6px rgba(0,0,0,0.5);">
+OncoRisk
+</h1>
+
+<h3 style="margin-top:0;text-shadow:0 1px 4px rgba(0,0,0,0.45);">
+Clinicogenomic Survival Intelligence
+</h3>
+
+<p style="margin-top:1rem;color:#f1f5f9;max-width:36ch;">
+Explore survival structure, individual risk profiles,
+and biological drivers across independent cohorts.
+</p>
+</div>
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+
+    st.markdown(
+    """
+    <a class="hero-cta" href="?page=Dashboard">
+        → Explore the Model
+    </a>
+    """,
+        unsafe_allow_html=True
+    )
+
+
+
+    st.markdown("---")
+
+    # ---------- SECTION 1 ----------
+    st.header("What This Project Is")
+    st.markdown("""
+OncoRisk is a research-grade survival modeling platform developed to study how a compact set of
+clinical variables and tumor gene expression jointly shape long-term survival risk in breast cancer.
+Rather than producing binary predictions or treatment recommendations, the system models
+**time-to-event behavior** using established survival analysis frameworks. Its outputs include
+relative hazard estimates, full survival curves, and survival-time summaries such as median survival
+and restricted mean survival time (RMST).
+The platform was developed using TCGA-BRCA and evaluated on an entirely independent external cohort,
+METABRIC, spanning more than 2,900 patients in total. The goal is not maximal prediction within a
+single dataset, but **interpretability, stability, and external validity across cohorts**.
+""")
+    st.markdown("---")
+
+    # ---------- SECTION 2 ----------
+    st.header("Why This Model Exists")
+    st.caption("The motivating question behind the modeling choices")
+
+    st.markdown("""
+Clinical staging and basic pathology explain only part of why patients with similar diagnoses
+experience markedly different outcomes. Molecular features can add information, but many published
+signatures rely on hundreds or thousands of genes, making them difficult to interpret and fragile
+outside their training cohort.
+""")
+    st.markdown("""
+### ❓ Core Research Question
+
+**Can a compact, biologically coherent clinicogenomic feature set support stable and explainable
+survival modeling across independent breast cancer cohorts?**
+""")
+
+    st.markdown("""
+- inputs were limited to variables that repeatedly demonstrated signal under stress-testing
+- transparent survival models were favored over opaque predictors
+- agreement across linear and nonlinear modeling paradigms was treated as informative
+- external validation was prioritized over optimization on TCGA alone
+""")
+    st.markdown("---")
+
+    # ---------- SECTION 3 ----------
+    st.header("Modeling Strategy: A Dual-Model System")
+    st.markdown("""
+OncoRisk uses two complementary survival models, each serving a distinct role.
+The primary risk engine is a Cox proportional hazards model, chosen for its long-standing role in clinical survival analysis, explicit coefficients, and stable behavior under external validation. From this model, the system derives relative hazard scores, full survival curves, median survival time, and restricted mean survival time.
+Alongside Cox, a Random Survival Forest (RSF) is trained on the same feature set to capture nonlinear effects and feature interactions that linear models cannot represent. RSF produces independent survival curves and survival-time estimates but is not used as a replacement for Cox.
+Instead, the two models form a dual lens: Cox provides a mechanistic and interpretable hazard structure, while RSF offers flexibility and interaction awareness. For each patient-like profile, the app shows both CoxPH and RSF survival curves, median survival, RMST, and a simple agreement score between the two is treated as informative, and disagreement is made explicit rather than hidden.
+""")
+
+    st.markdown("---")
+
+    # ---------- SECTION 4 ----------
+    st.header("Data and Cohorts")
+
+    st.subheader("TCGA-BRCA (Training and Internal Evaluation)")
+    st.markdown("""
+- **1,059 patients**
+- **Training set:** 847 patients (120 observed events)
+- **Test set:** 212 patients (30 observed events)
+""")
+
+    st.subheader("METABRIC (External Validation)")
+    st.markdown("""
+- **1,903 patients**
+- **1,103 observed events**
+- No samples used during training or tuning
+""")
+
+    st.markdown("""
+The final input space consisted of **33 features per patient**.
+
+**Clinical (2):**
+- Age at diagnosis
+- Lymph-node involvement (binary)
+
+**Molecular (31):**
+- A curated gene expression panel present in both TCGA and METABRIC
+  In total, the model operates on 33 features per patient.
+  This design is intentional: fewer variables, clearer interpretation
+""")
+    st.markdown("---")
+
+
+    # ============================================================
+    # EXPANDER 1
+    # ============================================================
+
+    with st.expander("🔍 Model Design & Inference Logic"):
+        st.subheader("Data and Cohorts")
+        st.markdown("""Model development and evaluation used two large, independent breast cancer cohorts that differ in origin, measurement technology, and clinical context. This separation was intentional: one cohort was used for model development and internal evaluation, while the other was reserved exclusively for external validation.
+**TCGA-BRCA (Used for Training and Internal Evaluation)**
+The primary development cohort was TCGA-BRCA, a genomically profiled breast cancer dataset generated by The Cancer Genome Atlas. After aligning survival outcomes, clinical variables, and gene expression data, the final TCGA cohort included 1,059 patients with complete information.
+To prevent information leakage and preserve reproducibility, a frozen train–test split was used throughout the project:
+* Training set: 847 patients (120 observed events)
+* Test set: 212 patients (30 observed events)
+All model fitting, feature scaling, and parameter estimation were performed strictly on the training set. The TCGA test set was used only for internal evaluation and visualization, reflecting how the model would behave on unseen patients from the same source.
+**METABRIC (Used exclusively for External Validation)**
+METABRIC is an independently collected breast cancer cohort generated using microarray-based gene expression profiling and long-term clinical follow-up. No METABRIC samples were used during model training, feature selection, or hyperparameter tuning.
+Its role was to test whether the survival structure learned from TCGA generalizes across differences in cohort composition, measurement technology, and clinical practice.
+After harmonizing clinical variables and restricting analysis to genes shared with TCGA, the final METABRIC cohort included 1,903 patients, with 1,103 observed events. Gene expression was restricted to a curated 31-gene signature present in both cohorts, enforcing cross-cohort compatibility and reducing overfitting risk.""")
+
+        st.subheader("Patient-Level Profile Inference")
+        st.markdown("""For any clinicogenomic profile, the system computes survival curves and time-based summaries from both models, including median survival and RMST. A simple agreement score quantifies how closely the two models align.
+This enables a simple twin-model logic: when both survival models trained on the same data tell a similar survival story, confidence increases; when they diverge, uncertainty is exposed rather than smoothed away. No single number is treated as absolute truth, which keeps the output aligned with research use rather than clinical decision-making.
+""")
+    st.markdown("---")
+
+    # ============================================================
+    # EXPANDER 2
+    # ============================================================
+
+    with st.expander("🧬 Biological Programs and Survival Structure"):
+        st.subheader("Why These Inputs Were Chosen")
+        st.markdown(""" **Lymph-Node Involvement**
+Lymph-node status is one of the strongest real-world predictors of prognosis in breast cancer because it captures whether tumor cells have escaped the primary site and entered the lymphatic system. In this project’s experiments, including lymph-node positivity consistently improved separation between low- and high-risk groups and strengthened external performance, making it a central anchor rather than a secondary covariate.
+
+**Age at Diagnosis**
+Age captures a mixture of immune, hormonal, and treatment-related effects that shift baseline risk even when tumors appear similar histologically. Across TCGA and METABRIC, age showed a stable, directionally consistent association with hazard and remained reliable under external validation, justifying its inclusion as a simple but robust clinical modifier.
+
+**The 31-Gene Panel**
+Instead of using thousands of genes, OncoRisk relies on a curated 31-gene panel present in both cohorts. Across Cox proportional hazards models, Random Survival Forests, and gradient-boosted survival models, these genes kept repeatedly contributed non-random, directionally consistent signal.
+Functionally, they cluster into three recurring biological programs:
+* **Immune regulation and the tumor–immune interface**: genes tied to how tumors avoid or reshape immune attack.(e.g., CD24, TNFRSF14, CCL19)
+* **Metabolic plasticity and stress tolerance**: genes that support energy rewiring and survival under stress.​ (e.g., SLC16A2, SERPINA1, QPRT)
+* **Extracellular matrix remodeling and invasion**: genes involved in reshaping tissue structure to support spread and immune escape (e.g., SEMA3B, TFPI2)
+Activation of these programs consistently aligned with worse survival, which is why this panel became the molecular backbone of the system.
+""")
+
+        st.subheader("What the Model Learns")
+        st.markdown("""Across cohorts, both models consistently surface three dominant survival programs:
+
+* immune regulation at the tumor–immune interface
+* metabolic stress tolerance and mitochondrial function
+* extracellular matrix remodeling associated with invasion
+
+High-risk tumors tend to show coordinated activation of these programs, while low-risk tumors lack a dominant driver profile. This pattern suggests that aggressive disease follows structured biological strategies rather than arising from random molecular noise.""")
+    st.markdown("---")
+
+    # ============================================================
+    # EXPANDER 3
+    # ============================================================
+
+    with st.expander("📊 Outputs, Validation, and Scope"):
+        st.subheader("Outputs and Intended Use")
+        st.markdown("""The system reports:
+* relative hazard estimates
+* nonlinear risk measures
+* survival curves over time
+* median survival time
+* restricted mean survival time (RMST)
+* a model-agreement score
+It deliberately does not output treatment recommendations, diagnostic classifications, or absolute survival probabilities intended for decision-making. All outputs are designed for research, stratification, and hypothesis generation.
+""")
+
+        st.subheader("What This System Is — and Is Not")
+        st.markdown("""**This system is:**
+* a dual-model survival analysis framework
+* a clinicogenomic integration study
+* a platform for interpretable survival exploration
+
+**This system is not:**
+* a diagnostic tool
+* a clinical decision system
+* a substitute for clinical judgment""")
+
+        st.markdown("---")
+
+
+    # ---------- FINAL SECTION ----------
+    st.header("What the Project Achieved and Why It Matters")
+    st.markdown("""Using a compact, mechanistic feature set, the models achieved C-indices of approximately **0.79 (Cox)** and **~0.73 (RSF)** on TCGA test data, with performance remaining around **0.63** on the externally validated METABRIC cohort—levels considered meaningful for genomic survival modeling across cohorts.
+
+High- and low-risk groups showed clearly separated Kaplan–Meier curves, and the same immune, metabolic, and extracellular matrix programs emerged as drivers of hazard in both datasets.
+
+Rather than acting as a complex classifier, OncoRisk functions as a **computational risk architecture**: it translates clinicogenomic profiles into transparent survival estimates, exposes the biological programs shaping risk, and provides a stable framework for exploring survival behavior across independent patient populations.
+
+*Developed as a research and translational modeling project.
+Not intended for clinical use.*
+""")
+
+# 
