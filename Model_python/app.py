@@ -680,4 +680,89 @@ Rather than acting as a complex classifier, OncoRisk functions as a **computatio
 Not intended for clinical use.*
 """)
 
+#
+# PAGE: DASHBOARD
+# ============================================================
+
+elif page == "Dashboard":
+    st.write("🧪 ENTERED:", page)
+
+    st.title("OncoRisk™ — Dual-Model Survival Analytics")
+    
+
+    art = get_artifacts()
+
+    df_tcga = art["df_tcga"]
+    df_mb = art["df_mb"]
+    df_test_scaled = art["df_test"]
+    df_mb_scaled = art["df_mb_s"]
+
+    features = art["features"]
+    gene_features = art["gene_features"]
+
+    scaler = art["scaler"]
+    cph = art["cph"]
+    rsf = art["rsf"]
+
+    cindex_train_cox = art["cindex_train_cox"]
+    cindex_train_rsf = art["cindex_train_rsf"]
+
+    risk_test_cox = art["risk_test_cox"]
+    risk_test_rsf = art["risk_test_rsf"]
+
+    df_tcga_test_km = art["df_tcga_test_km"]
+    df_mb_km = art["df_mb_km"]
+
+    df_imp_cox = art["df_imp_cox"]
+    df_imp_rsf = art["df_imp_rsf"]
+
+    cindex_test_cox = art["cindex_test_cox"]
+    cindex_test_rsf = art["cindex_test_rsf"]
+    cindex_mb_cox = art["cindex_mb_cox"]
+    cindex_mb_rsf = art["cindex_mb_rsf"]
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Cox Train C-index", f"{cindex_train_cox:.3f}")
+    col2.metric("Cox Test C-index",  f"{cindex_test_cox:.3f}")
+    col3.metric("Cox External",      f"{cindex_mb_cox:.3f}")
+    col4.metric("RSF Train C-index", f"{cindex_train_rsf:.3f}")
+    col5.metric("RSF Test C-index",  f"{cindex_test_rsf:.3f}")
+    col6.metric("RSF External",      f"{cindex_mb_rsf:.3f}")
+
+    st.caption("Cox = mechanistic hazard; RSF = nonlinear ensemble risk. Metrics are concordance indices.")
+
+    colA, colB = st.columns(2)
+
+    with colA:
+        st.subheader("CoxPH – Global Feature Importance")
+        top_cox = df_imp_cox.head(25)
+
+        fig, ax = plt.subplots(figsize=(5, 6))  # taller for 25 labels
+        y_pos = np.arange(len(top_cox))
+        ax.barh(y_pos, top_cox["abs_coef"].values)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(top_cox["feature"].values)
+        ax.invert_yaxis()
+        ax.set_xlabel("|Coefficient| (log-hazard)")
+        ax.set_title("Top 25 Features by |Cox Coefficient|")
+        fig.tight_layout()
+        st.pyplot(fig)
+
+    with colB:
+        st.subheader("RSF – Global Feature Importance")
+        if not df_imp_rsf.empty:
+            top_rsf = df_imp_rsf.head(25)
+            fig2, ax2 = plt.subplots(figsize=(5, 6))  # taller
+            y_pos2 = np.arange(len(top_rsf))
+            ax2.barh(y_pos2, top_rsf["abs_importance"].values)
+            ax2.set_yticks(y_pos2)
+            ax2.set_yticklabels(top_rsf["feature"].values)
+            ax2.invert_yaxis()
+            ax2.set_xlabel("Importance")
+            ax2.set_title("Top 25 Features by RSF Importance")
+            fig2.tight_layout()
+            st.pyplot(fig2)
+        else:
+            st.info("RSF importance not available in this build.")
+
 # 
