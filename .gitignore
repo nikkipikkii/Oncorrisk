@@ -14,7 +14,7 @@ pages/analytics
 src/pages/development-performance
 src/pages/gene-db
 src/pages/analytics
-src/pages/riskprofile
+# src/pages/riskprofile
 # Env
 .env
 .env.local
