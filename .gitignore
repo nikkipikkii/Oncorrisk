@@ -12,7 +12,7 @@ dist/
 build/
 pages/analytics
 src/pages/development-performance
-src/pages/gene-db
+# src/pages/gene-db
 src/pages/analytics
 # src/pages/riskprofile
 # Env
