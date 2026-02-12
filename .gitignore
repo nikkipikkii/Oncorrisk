@@ -10,7 +10,11 @@ vite.config.*s.*
 node_modules/
 dist/
 build/
-pages/
+pages/analytics
+src/pages/development-performance
+src/pages/gene-db
+src/pages/analytics
+src/pages/riskprofile
 # Env
 .env
 .env.local
