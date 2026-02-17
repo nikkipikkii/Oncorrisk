@@ -95,12 +95,12 @@
   Build the application for production:
 
   ```bash
-  npm run build
-  ```
-
   Ensure you are in the my-oncorisk-app folder
 npm run start
 Model_python-> python main.py
   Ensure you are in the my-oncorisk-app folder
 npm run start
+
+  ```
+
 
